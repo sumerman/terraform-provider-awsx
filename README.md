@@ -17,7 +17,11 @@ Code is heavily based on the builtin AWS provider.
 
 ## Usage
 
-Terraform config:
+- `go build`
+- `go get` (Due to some internal Terraform plugin API changes you may need to **checkout a specific version**)
+-  copy `terraform-provider-awsx` binary to your terraform workspace (same place where your `*.tf` files are)
+
+Terraform config may look like:
 
 ```
 provider "aws" {
@@ -52,8 +56,6 @@ resource "awsx_elasticache_replication_group" "bar" {
     security_group_names = ["${aws_elasticache_security_group.bar.name}"]
 }
 ```
-
-Plugin setup is described [here](https://www.terraform.io/docs/plugins/basics.html)
 
 ## Run acceptance tests
 
