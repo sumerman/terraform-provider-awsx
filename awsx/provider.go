@@ -336,7 +336,7 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 	}
 
 	if v, ok := d.GetOk("automatic_failover"); ok {
-		req.AutomaticFailoverEnabled = aws.Bool(v.(bool))
+		req.AutomaticFailoverEnabled = aws.Bool(v.(string) == "true")
 	}
 
 	preferred_azs := d.Get("availability_zones").(*schema.Set).List()
