@@ -233,6 +233,13 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 				Optional: true,
 				Computed: true,
 				ForceNew: true,
+				ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
+					value := v.(string)
+					if !(value == elasticache.AutomaticFailoverStatusEnabled || value == elasticache.AutomaticFailoverStatusDisabled) {
+						es = append(es, fmt.Errorf("valid values for 'automatic_failover' are 'enabled' and 'disabled'"))
+					}
+					return
+				},
 			},
 
 			"availability_zones": &schema.Schema{
@@ -336,7 +343,7 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 	}
 
 	if v, ok := d.GetOk("automatic_failover"); ok {
-		req.AutomaticFailoverEnabled = aws.Bool(v.(string) == "true")
+		req.AutomaticFailoverEnabled = aws.Bool(v.(string) == elasticache.AutomaticFailoverStatusEnabled)
 	}
 
 	preferred_azs := d.Get("availability_zones").(*schema.Set).List()
@@ -361,7 +368,7 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 		Pending:    pending,
 		Target:     []string{"available"},
 		Refresh:    replicationGroupStateRefreshFunc(conn, d.Id(), "available", pending),
-		Timeout:    10 * time.Minute,
+		Timeout:    20 * time.Minute,
 		Delay:      10 * time.Second,
 		MinTimeout: 3 * time.Second,
 	}
