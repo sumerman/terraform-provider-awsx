@@ -100,6 +100,11 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 				},
 				ValidateFunc: validateElastiCacheReplictionGroupId,
 			},
+			"description": &schema.Schema{
+				Type:     schema.TypeString,
+				Default:  "",
+				Optional: true,
+			},
 			"node_type": &schema.Schema{
 				Type:     schema.TypeString,
 				Required: true,
@@ -294,6 +299,7 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 	conn := meta.(*elasticache.ElastiCache)
 
 	replicationGroupId := d.Get("replication_group_id").(string)
+	description := d.Get("description").(string)
 	nodeType := d.Get("node_type").(string) // e.g) cache.m1.small
 	// TODO either cluster_id or num_cache_clusters > 1
 	numNodes := int64(d.Get("num_cache_clusters").(int)) // 2
@@ -308,7 +314,7 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 
 	req := &elasticache.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String(replicationGroupId),
-		ReplicationGroupDescription: aws.String(""), // TODO?
+		ReplicationGroupDescription: aws.String(description),
 		CacheNodeType:               aws.String(nodeType),
 		NumCacheClusters:            aws.Int64(numNodes),
 		Engine:                      aws.String("redis"),
@@ -511,6 +517,11 @@ func resourceAwsElasticacheReplictaionGroupUpdate(d *schema.ResourceData, meta i
 	req := &elasticache.ModifyReplicationGroupInput{
 		ReplicationGroupId: aws.String(d.Id()),
 		ApplyImmediately:   aws.Bool(d.Get("apply_immediately").(bool)),
+	}
+
+	if d.HasChange("note_type") {
+		req.ReplicationGroupDescription = aws.String(d.Get("description").(string))
+		requestUpdate = true
 	}
 
 	if d.HasChange("note_type") {

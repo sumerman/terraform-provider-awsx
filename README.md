@@ -7,13 +7,16 @@ Resources missing from the builtin AWS provider:
 - Elasticache Replication Groups  
   Unfortunately there is an AWS API limitation that does not allow to update a number of replicas without manipulating individual cache clusters that comprise a replication group. There is a way to work around this: add a read replica manually and then change your tf config. **WIP**:
 
-	- [X] Initial CRD callbacks + test
-	- [X] Binary
-	- [X] Update
-	- [ ] Tags
-	- [ ] Increase a number of read replicas
-	- [ ] Decrease a number of read replicas
-	- [ ] Creation with an existent primary and leaving it be after a deletion
+  - [x] Initial CRD callbacks + test
+  - [x] Binary
+  - [x] Update
+  - [ ] Tags
+     - [x] Create
+     - [ ] Update
+  - [ ] Change the number of read replicas without workarounds
+     - [ ] Increase
+     - [ ] Decrease
+  - [ ] Creation with an existent primary and leaving it be after a deletion
 
 ## Usage
 
