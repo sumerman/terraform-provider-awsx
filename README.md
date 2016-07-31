@@ -14,7 +14,6 @@ Resources missing from the builtin AWS provider:
 	- [ ] Increase a number of read replicas
 	- [ ] Decrease a number of read replicas
 	- [ ] Creation with an existent primary and leaving it be after a deletion
-	- [-] Better test coverage
 
 ## Usage
 
