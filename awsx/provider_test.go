@@ -68,6 +68,26 @@ func TestAccAWSElasticacheReplicationGroup_basic(t *testing.T) {
 	})
 }
 
+func TestAccAWSElasticacheReplicationGroup_failoverInVPC(t *testing.T) {
+	var rg elasticache.ReplicationGroup
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAWSElasticacheReplicationGroupDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config: testAccAWSElasticacheReplicationGroupConfigFailoverInVPC,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckAWSElasticacheReplicationGroupExists("awsx_elasticache_replication_group.bar", &rg),
+					testAccCheckAWSElasticacheReplicationGroupAvailabilityZones([]string{"eu-west-1c", "eu-west-1b"}, &rg),
+					resource.TestCheckResourceAttr(
+						"awsx_elasticache_replication_group.bar", "automatic_failover", "enabled"),
+				),
+			},
+		},
+	})
+}
+
 func testAccCheckAWSElasticacheReplicationGroupExists(n string, v *elasticache.ReplicationGroup) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		fmt.Println(s)
@@ -91,6 +111,28 @@ func testAccCheckAWSElasticacheReplicationGroupExists(n string, v *elasticache.R
 		for _, c := range resp.ReplicationGroups {
 			if *c.ReplicationGroupId == rs.Primary.ID {
 				*v = *c
+			}
+		}
+
+		return nil
+	}
+}
+
+func testAccCheckAWSElasticacheReplicationGroupAvailabilityZones(zones []string, v *elasticache.ReplicationGroup) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		if len(v.NodeGroups) != 1 {
+			return fmt.Errorf("Unexpected number of nodegroups. Must be just one")
+		}
+
+		zonesMap := make(map[string]bool)
+		members := v.NodeGroups[0].NodeGroupMembers
+		for _, m := range members {
+			zonesMap[*m.PreferredAvailabilityZone] = true
+		}
+
+		for _, z := range zones {
+			if !(zonesMap[z]) {
+				return fmt.Errorf("At least one memeber in zone %v was expected, none found", z)
 			}
 		}
 
@@ -155,3 +197,76 @@ resource "awsx_elasticache_replication_group" "bar" {
     security_group_names = ["${aws_elasticache_security_group.bar.name}"]
 }
 `, acctest.RandInt(), acctest.RandInt(), acctest.RandString(10))
+
+var testAccAWSElasticacheReplicationGroupConfigFailoverInVPC = fmt.Sprintf(`
+resource "aws_vpc" "foo" {
+    cidr_block = "192.168.0.0/16"
+    tags {
+            Name = "tf-test"
+    }
+}
+
+resource "aws_subnet" "foo" {
+    vpc_id = "${aws_vpc.foo.id}"
+    cidr_block = "192.168.0.0/20"
+    availability_zone = "eu-west-1a"
+    tags {
+            Name = "tf-test-%03d"
+    }
+}
+
+resource "aws_subnet" "bar" {
+    vpc_id = "${aws_vpc.foo.id}"
+    cidr_block = "192.168.16.0/20"
+    availability_zone = "eu-west-1b"
+    tags {
+            Name = "tf-test-%03d"
+    }
+}
+
+resource "aws_subnet" "baz" {
+    vpc_id = "${aws_vpc.foo.id}"
+    cidr_block = "192.168.32.0/20"
+    availability_zone = "eu-west-1c"
+    tags {
+            Name = "tf-test-%03d"
+    }
+}
+
+resource "aws_elasticache_subnet_group" "bar" {
+    name = "tf-test-cache-subnet-%03d"
+    description = "tf-test-cache-subnet-group-descr"
+    subnet_ids = [
+        "${aws_subnet.foo.id}",
+        "${aws_subnet.bar.id}",
+        "${aws_subnet.baz.id}"
+    ]
+}
+
+resource "aws_security_group" "bar" {
+    name = "tf-test-security-group-%03d"
+    description = "tf-test-security-group-descr"
+    vpc_id = "${aws_vpc.foo.id}"
+    ingress {
+        from_port = -1
+        to_port = -1
+        protocol = "icmp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+}
+
+resource "awsx_elasticache_replication_group" "bar" {
+    replication_group_id = "tf-%s"
+    node_type = "cache.m1.small"
+    num_cache_clusters = 2
+    port = 6379
+    security_group_ids = ["${aws_security_group.bar.id}"]
+	subnet_group_name = "${aws_elasticache_subnet_group.bar.id}"
+    parameter_group_name = "default.redis2.8"
+    automatic_failover = "enabled"
+    availability_zones = [
+        "eu-west-1c",
+        "eu-west-1b"
+    ]
+}
+`, acctest.RandInt(), acctest.RandInt(), acctest.RandInt(), acctest.RandInt(), acctest.RandInt(), acctest.RandString(10))

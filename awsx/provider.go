@@ -363,7 +363,7 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 	// name contained uppercase characters.
 	d.SetId(strings.ToLower(*resp.ReplicationGroup.ReplicationGroupId))
 
-	pending := []string{"creating"}
+	pending := []string{"creating", "modifying"}
 	stateConf := &resource.StateChangeConf{
 		Pending:    pending,
 		Target:     []string{"available"},
@@ -531,18 +531,20 @@ func replicationGroupStateRefreshFunc(conn *elasticache.ElastiCache, replGroupID
 		if givenState != "" {
 			log.Printf("[DEBUG] ElastiCache: checking given state (%s) of a replication group (%s) against group status (%s)", givenState, replGroupID, *rg.ReplicationGroupId)
 
-			// loop the nodes and check their status as well
-			if len(rg.NodeGroups) == 1 {
-				status := rg.NodeGroups[0].Status
-				if status != nil && *status != "available" {
-					log.Printf("[DEBUG] Node group (%s) is not yet available, status: %s", *rg.NodeGroups[0].NodeGroupId, *status)
-					return nil, "creating", nil
+			if *rg.Status == givenState {
+				// loop the nodes and check their status as well
+				if len(rg.NodeGroups) == 1 {
+					status := rg.NodeGroups[0].Status
+					if status != nil && *status != "available" {
+						log.Printf("[DEBUG] Node group (%s) is not yet available, status: %s", *rg.NodeGroups[0].NodeGroupId, *status)
+						return nil, "creating", nil
+					}
+					log.Printf("[DEBUG] Cache node group is not in an expected state")
 				}
-				log.Printf("[DEBUG] Cache node group is not in an expected state")
-			}
 
-			log.Printf("[DEBUG] ElastiCache returning given state (%s), replication group: %s", givenState, rg)
-			return rg, givenState, nil
+				log.Printf("[DEBUG] ElastiCache returning given state (%s), replication group: %s", givenState, rg)
+				return rg, givenState, nil
+			}
 		}
 
 		log.Printf("[DEBUG] current status: %v", *rg.Status)
