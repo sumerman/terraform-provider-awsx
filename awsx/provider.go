@@ -83,7 +83,7 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceAwsElasticacheReplictaionGroupCreate,
 		Read:   resourceAwsElasticacheReplictaionGroupRead,
-		//Update: resourceAwsElasticacheReplictaionGroupUpdate, TODO
+		Update: resourceAwsElasticacheReplictaionGroupUpdate,
 		Delete: resourceAwsElasticacheReplictaionGroupDelete,
 
 		Schema: map[string]*schema.Schema{
@@ -103,12 +103,11 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 			"node_type": &schema.Schema{
 				Type:     schema.TypeString,
 				Required: true,
-				ForceNew: true,
 			},
 			"num_cache_clusters": &schema.Schema{
 				Type:     schema.TypeInt,
 				Required: true,
-				ForceNew: true, // TODO add update
+				ForceNew: true,
 			},
 			"parameter_group_name": &schema.Schema{
 				Type:     schema.TypeString,
@@ -182,6 +181,10 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 							Type:     schema.TypeString,
 							Computed: true,
 						},
+						"role": &schema.Schema{
+							Type:     schema.TypeString,
+							Computed: true,
+						},
 						"address": &schema.Schema{
 							Type:     schema.TypeString,
 							Computed: true,
@@ -217,7 +220,6 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 			"snapshot_retention_limit": &schema.Schema{
 				Type:     schema.TypeInt,
 				Optional: true,
-				ForceNew: true, // TODO add update
 				ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
 					value := v.(int)
 					if value > 35 {
@@ -232,7 +234,6 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 				Computed: true,
-				ForceNew: true,
 				ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
 					value := v.(string)
 					if !(value == elasticache.AutomaticFailoverStatusEnabled || value == elasticache.AutomaticFailoverStatusDisabled) {
@@ -400,15 +401,27 @@ func resourceAwsElasticacheReplictaionGroupRead(d *schema.ResourceData, meta int
 	}
 
 	if len(res.ReplicationGroups) == 1 {
-		c := res.ReplicationGroups[0]
-		d.Set("replication_group_id", c.ReplicationGroupId)
-		d.Set("automatic_failover", c.AutomaticFailover)
+		rg := res.ReplicationGroups[0]
+		d.Set("replication_group_id", rg.ReplicationGroupId)
+		d.Set("automatic_failover", rg.AutomaticFailover)
 
-		if len(c.NodeGroups) == 1 && len(c.NodeGroups[0].NodeGroupMembers) > 0 {
-			cacheNodeData := make([]map[string]interface{}, 0, len(c.NodeGroups[0].NodeGroupMembers))
-			for _, node := range c.NodeGroups[0].NodeGroupMembers {
+		var groupMembers []*elasticache.NodeGroupMember
+		if len(rg.NodeGroups) == 1 {
+			groupMembers = rg.NodeGroups[0].NodeGroupMembers
+			d.Set("endpoint", map[string]interface{}{
+				"address": *rg.NodeGroups[0].PrimaryEndpoint.Address,
+				"port":    int(*rg.NodeGroups[0].PrimaryEndpoint.Port),
+			})
+		}
+
+		numReplicas := len(groupMembers)
+		d.Set("num_cache_clusters", numReplicas)
+		if numReplicas > 0 {
+			cacheNodeData := make([]map[string]interface{}, 0, numReplicas)
+			for _, node := range groupMembers {
 				cacheNodeData = append(cacheNodeData, map[string]interface{}{
 					"id":                *node.CacheClusterId,
+					"role":              *node.CurrentRole,
 					"address":           *node.ReadEndpoint.Address,
 					"port":              int(*node.ReadEndpoint.Port),
 					"availability_zone": *node.PreferredAvailabilityZone,
@@ -416,34 +429,43 @@ func resourceAwsElasticacheReplictaionGroupRead(d *schema.ResourceData, meta int
 			}
 			d.Set("cache_nodes", cacheNodeData)
 
-			d.Set("endpoint", map[string]interface{}{
-				"address": *c.NodeGroups[0].PrimaryEndpoint.Address,
-				"port":    int(*c.NodeGroups[0].PrimaryEndpoint.Port),
-			})
+			for i, gm := range groupMembers {
+				req := &elasticache.DescribeCacheClustersInput{
+					CacheClusterId:    gm.CacheClusterId,
+					ShowCacheNodeInfo: aws.Bool(true),
+				}
 
-			n := c.NodeGroups[0].NodeGroupMembers[0]
-			req := &elasticache.DescribeCacheClustersInput{
-				CacheClusterId:    n.CacheClusterId,
-				ShowCacheNodeInfo: aws.Bool(true),
-			}
+				res, err := conn.DescribeCacheClusters(req)
+				if err != nil {
+					return err
+				}
+				var c *elasticache.CacheCluster
+				if len(res.CacheClusters) == 1 {
+					c = res.CacheClusters[0]
+				}
 
-			res, err := conn.DescribeCacheClusters(req)
-			if err != nil {
-				return err
-			}
-			if len(res.CacheClusters) == 1 {
-				c := res.CacheClusters[0]
-				d.Set("node_type", c.CacheNodeType)
-				d.Set("num_cache_nodes", c.NumCacheNodes)
-				d.Set("engine", c.Engine)
-				d.Set("engine_version", c.EngineVersion)
-				d.Set("subnet_group_name", c.CacheSubnetGroupName)
-				d.Set("security_group_names", c.CacheSecurityGroups)
-				d.Set("security_group_ids", c.SecurityGroups)
-				d.Set("parameter_group_name", c.CacheParameterGroup)
-				d.Set("maintenance_window", c.PreferredMaintenanceWindow)
-				d.Set("snapshot_window", c.SnapshotWindow)
-				d.Set("snapshot_retention_limit", c.SnapshotRetentionLimit)
+				// Fill group's parameters from the first
+				// replica. They have to be the same for all replicas.
+				if c != nil && i == 0 {
+					d.Set("node_type", c.CacheNodeType)
+					d.Set("num_cache_nodes", c.NumCacheNodes)
+					d.Set("engine", c.Engine)
+					d.Set("engine_version", c.EngineVersion)
+					d.Set("subnet_group_name", c.CacheSubnetGroupName)
+					d.Set("security_group_names", c.CacheSecurityGroups)
+					d.Set("security_group_ids", c.SecurityGroups)
+					d.Set("parameter_group_name", c.CacheParameterGroup)
+					d.Set("maintenance_window", c.PreferredMaintenanceWindow)
+					d.Set("snapshot_window", c.SnapshotWindow)
+					d.Set("snapshot_retention_limit", c.SnapshotRetentionLimit)
+				}
+				// Since there is no way to know in advance which replica is used
+				// for snapshotting all must be checked.
+				if c != nil && *c.SnapshotRetentionLimit > 0 {
+					d.Set("snapshot_window", c.SnapshotWindow)
+					d.Set("snapshot_retention_limit", c.SnapshotRetentionLimit)
+					break
+				}
 			}
 		}
 	}
@@ -480,6 +502,106 @@ func resourceAwsElasticacheReplictaionGroupDelete(d *schema.ResourceData, meta i
 	d.SetId("")
 
 	return nil
+}
+
+func resourceAwsElasticacheReplictaionGroupUpdate(d *schema.ResourceData, meta interface{}) error {
+	conn := meta.(*elasticache.ElastiCache)
+	requestUpdate := false
+
+	req := &elasticache.ModifyReplicationGroupInput{
+		ReplicationGroupId: aws.String(d.Id()),
+		ApplyImmediately:   aws.Bool(d.Get("apply_immediately").(bool)),
+	}
+
+	if d.HasChange("note_type") {
+		req.CacheNodeType = aws.String(d.Get("node_type").(string))
+		requestUpdate = true
+	}
+
+	if d.HasChange("security_group_ids") {
+		if attr := d.Get("security_group_ids").(*schema.Set); attr.Len() > 0 {
+			req.SecurityGroupIds = expandStringList(attr.List())
+			requestUpdate = true
+		}
+	}
+
+	if d.HasChange("parameter_group_name") {
+		req.CacheParameterGroupName = aws.String(d.Get("parameter_group_name").(string))
+		requestUpdate = true
+	}
+
+	if d.HasChange("maintenance_window") {
+		req.PreferredMaintenanceWindow = aws.String(d.Get("maintenance_window").(string))
+		requestUpdate = true
+	}
+
+	if d.HasChange("engine_version") {
+		req.EngineVersion = aws.String(d.Get("engine_version").(string))
+		requestUpdate = true
+	}
+
+	if d.HasChange("snapshot_window") {
+		req.SnapshotWindow = aws.String(d.Get("snapshot_window").(string))
+		requestUpdate = true
+	}
+
+	if d.HasChange("snapshot_retention_limit") {
+		var snapshotNodeId string
+		if v, ok := d.GetOk("cache_nodes"); ok {
+			cacheNodeData := v.([]interface{})
+			for i, nodeInterface := range cacheNodeData {
+				node := nodeInterface.(map[string]interface{})
+				// pick the "best" replica for snapshotting
+				// - if there is just one — then use it even if it's primary
+				// - if there are several — use the last non-primary in the list
+				if i == 0 || node["role"].(string) != "primary" {
+					snapshotNodeId = node["id"].(string)
+				}
+			}
+		}
+		if snapshotNodeId != "" {
+			req.SnapshottingClusterId = aws.String(snapshotNodeId)
+			req.SnapshotRetentionLimit = aws.Int64(int64(d.Get("snapshot_retention_limit").(int)))
+			requestUpdate = true
+
+		}
+	}
+
+	automaticFailoverEnabled := false
+	if v, ok := d.GetOk("automatic_failover"); ok {
+		automaticFailoverEnabled = v.(string) == elasticache.AutomaticFailoverStatusEnabled
+	}
+
+	if d.HasChange("automatic_failover") {
+		req.AutomaticFailoverEnabled = aws.Bool(automaticFailoverEnabled)
+		requestUpdate = true
+	}
+
+	if requestUpdate {
+		log.Printf("[DEBUG] Modifying ElastiCache Replication Group (%s), opts:\n%s", d.Id(), req)
+		_, err := conn.ModifyReplicationGroup(req)
+		if err != nil {
+			return fmt.Errorf("[WARN] Error updating ElastiCache replication group (%s), error: %s", d.Id(), err)
+		}
+
+		log.Printf("[DEBUG] Waiting for update: %s", d.Id())
+		pending := []string{"modifying", "snapshotting"}
+		stateConf := &resource.StateChangeConf{
+			Pending:    pending,
+			Target:     []string{"available"},
+			Refresh:    replicationGroupStateRefreshFunc(conn, d.Id(), "available", pending),
+			Timeout:    10 * time.Minute,
+			Delay:      5 * time.Second,
+			MinTimeout: 3 * time.Second,
+		}
+
+		_, sterr := stateConf.WaitForState()
+		if sterr != nil {
+			return fmt.Errorf("Error waiting for elasticache (%s) to update: %s", d.Id(), sterr)
+		}
+	}
+
+	return resourceAwsElasticacheReplictaionGroupRead(d, meta)
 }
 
 func replicationGroupStateRefreshFunc(conn *elasticache.ElastiCache, replGroupID, givenState string, pending []string) resource.StateRefreshFunc {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -80,6 +81,46 @@ func TestAccAWSElasticacheReplicationGroup_failoverInVPC(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckAWSElasticacheReplicationGroupExists("awsx_elasticache_replication_group.bar", &rg),
 					testAccCheckAWSElasticacheReplicationGroupAvailabilityZones([]string{"eu-west-1c", "eu-west-1b"}, &rg),
+					resource.TestCheckResourceAttr(
+						"awsx_elasticache_replication_group.bar", "automatic_failover", "enabled"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccAWSElasticacheReplicationGroup_snapshotsWithUpdates(t *testing.T) {
+	var rg elasticache.ReplicationGroup
+
+	preConfig := testAccAWSElasticacheReplicationGroupConfig
+	postConfig := strings.Replace(strings.Replace(
+		testAccAWSElasticacheReplicationGroupConfig,
+		"_limit = 0", "_limit = 3", 1),
+		"num_cache_clusters = 2", "num_cache_clusters = 2\n automatic_failover = \"enabled\"", 1)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAWSElasticacheReplicationGroupDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config:  preConfig,
+				Destroy: false,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckAWSElasticacheReplicationGroupExists("awsx_elasticache_replication_group.bar", &rg),
+					resource.TestCheckResourceAttr(
+						"awsx_elasticache_replication_group.bar", "snapshot_retention_limit", "0"),
+					resource.TestCheckResourceAttr(
+						"awsx_elasticache_replication_group.bar", "automatic_failover", "disabled"),
+				),
+			},
+
+			resource.TestStep{
+				Config: postConfig,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckAWSElasticacheReplicationGroupExists("awsx_elasticache_replication_group.bar", &rg),
+					resource.TestCheckResourceAttr(
+						"awsx_elasticache_replication_group.bar", "snapshot_retention_limit", "3"),
 					resource.TestCheckResourceAttr(
 						"awsx_elasticache_replication_group.bar", "automatic_failover", "enabled"),
 				),
@@ -189,12 +230,15 @@ resource "aws_elasticache_security_group" "bar" {
 }
 
 resource "awsx_elasticache_replication_group" "bar" {
+	apply_immediately = true
     replication_group_id = "tf-%s"
     node_type = "cache.m1.small"
     num_cache_clusters = 2
     port = 11211
     parameter_group_name = "default.redis2.8"
     security_group_names = ["${aws_elasticache_security_group.bar.name}"]
+	snapshot_retention_limit = 0
+	snapshot_window = "05:00-09:00"
 }
 `, acctest.RandInt(), acctest.RandInt(), acctest.RandString(10))
 
@@ -263,6 +307,8 @@ resource "awsx_elasticache_replication_group" "bar" {
     security_group_ids = ["${aws_security_group.bar.id}"]
 	subnet_group_name = "${aws_elasticache_subnet_group.bar.id}"
     parameter_group_name = "default.redis2.8"
+	snapshot_retention_limit = 1
+	snapshot_window = "05:00-09:00"
     automatic_failover = "enabled"
     availability_zones = [
         "eu-west-1c",

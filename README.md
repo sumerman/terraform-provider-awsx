@@ -1,19 +1,20 @@
 # Terraform AWSX provider
 
-**WIP**
-
-- [X] Initial CRD callbacks + test
-- [X] Binary
-- [ ] Update
-- [ ] Tags
-- [ ] Creating with an existent primary and leaving it be after a deletion
-- [ ] Better test coverage
+Code is heavily based on the builtin AWS provider.
 
 Resources missing from the builtin AWS provider:
 
-- Elasticache Replication Groups
+- Elasticache Replication Groups  
+  Unfortunately there is an AWS API limitation that does not allow to update a number of replicas without manipulating individual cache clusters that comprise a replication group. There is a way to work around this: add a read replica manually and then change your tf config. **WIP**:
 
-Code is heavily based on the builtin AWS provider.
+	- [X] Initial CRD callbacks + test
+	- [X] Binary
+	- [X] Update
+	- [ ] Tags
+	- [ ] Increase a number of read replicas
+	- [ ] Decrease a number of read replicas
+	- [ ] Creation with an existent primary and leaving it be after a deletion
+	- [-] Better test coverage
 
 ## Usage
 
@@ -59,4 +60,4 @@ resource "awsx_elasticache_replication_group" "bar" {
 
 ## Run acceptance tests
 
-In order to run the test suite you have to specify AWS environment variables and execute `TF_ACC=true TF_LOG=DEBUG go test -v -timeout 20m`
+In order to run the test suite you have to specify AWS environment variables and execute `cd awsx; TF_ACC=true TF_LOG=DEBUG go test -v -timeout 120m`
