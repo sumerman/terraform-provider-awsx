@@ -205,6 +205,10 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 					},
 				},
 			},
+			"notification_topic_arn": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+			},
 			// A single-element string list containing an Amazon Resource Name (ARN) that
 			// uniquely identifies a Redis RDB snapshot file stored in Amazon S3. The snapshot
 			// file will be used to populate the node group.
@@ -342,6 +346,10 @@ func resourceAwsElasticacheReplictaionGroupCreate(d *schema.ResourceData, meta i
 		req.PreferredMaintenanceWindow = aws.String(v.(string))
 	}
 
+	if v, ok := d.GetOk("notification_topic_arn"); ok {
+		req.NotificationTopicArn = aws.String(v.(string))
+	}
+
 	snaps := d.Get("snapshot_arns").(*schema.Set).List()
 	if len(snaps) > 0 {
 		s := expandStringList(snaps)
@@ -414,6 +422,7 @@ func resourceAwsElasticacheReplictaionGroupRead(d *schema.ResourceData, meta int
 		var groupMembers []*elasticache.NodeGroupMember
 		if len(rg.NodeGroups) == 1 {
 			groupMembers = rg.NodeGroups[0].NodeGroupMembers
+			log.Printf("[DEBUG] Setting an endpoint info")
 			d.Set("endpoint", map[string]interface{}{
 				"address": *rg.NodeGroups[0].PrimaryEndpoint.Address,
 				"port":    int(*rg.NodeGroups[0].PrimaryEndpoint.Port),
@@ -462,9 +471,16 @@ func resourceAwsElasticacheReplictaionGroupRead(d *schema.ResourceData, meta int
 					d.Set("security_group_ids", c.SecurityGroups)
 					d.Set("parameter_group_name", c.CacheParameterGroup)
 					d.Set("maintenance_window", c.PreferredMaintenanceWindow)
+					if c.NotificationConfiguration != nil {
+						if *c.NotificationConfiguration.TopicStatus == "active" {
+							d.Set("notification_topic_arn", c.NotificationConfiguration.TopicArn)
+						}
+					}
+
 					d.Set("snapshot_window", c.SnapshotWindow)
 					d.Set("snapshot_retention_limit", c.SnapshotRetentionLimit)
 				}
+
 				// Since there is no way to know in advance which replica is used
 				// for snapshotting all must be checked.
 				if c != nil && *c.SnapshotRetentionLimit > 0 {
@@ -543,6 +559,16 @@ func resourceAwsElasticacheReplictaionGroupUpdate(d *schema.ResourceData, meta i
 
 	if d.HasChange("maintenance_window") {
 		req.PreferredMaintenanceWindow = aws.String(d.Get("maintenance_window").(string))
+		requestUpdate = true
+	}
+
+	if d.HasChange("notification_topic_arn") {
+		v := d.Get("notification_topic_arn").(string)
+		req.NotificationTopicArn = aws.String(v)
+		if v == "" {
+			inactive := "inactive"
+			req.NotificationTopicStatus = &inactive
+		}
 		requestUpdate = true
 	}
 
