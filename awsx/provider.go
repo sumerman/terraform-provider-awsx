@@ -492,7 +492,7 @@ func resourceAwsElasticacheReplictaionGroupRead(d *schema.ResourceData, meta int
 
 				// Since there is no way to know in advance which replica is used
 				// for snapshotting all must be checked.
-				if c != nil && *c.SnapshotRetentionLimit > 0 {
+				if c != nil && c.SnapshotRetentionLimit != nil && *c.SnapshotRetentionLimit > 0 {
 					d.Set("snapshot_window", c.SnapshotWindow)
 					d.Set("snapshot_retention_limit", c.SnapshotRetentionLimit)
 					break
