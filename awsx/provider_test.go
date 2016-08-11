@@ -299,6 +299,11 @@ resource "aws_security_group" "bar" {
     }
 }
 
+resource "aws_route53_zone" "xyz" {
+	name = "xyz"
+	vpc_id = "${aws_vpc.foo.id}"
+}
+
 resource "awsx_elasticache_replication_group" "bar" {
     replication_group_id = "tf-%s"
     node_type = "cache.m1.small"
@@ -314,5 +319,13 @@ resource "awsx_elasticache_replication_group" "bar" {
         "eu-west-1c",
         "eu-west-1b"
     ]
+}
+
+resource "aws_route53_record" "redis" {
+  zone_id = "${aws_route53_zone.xyz.id}"
+  name    = "${awsx_elasticache_replication_group.bar.id}.xyz"
+  type    = "CNAME"
+  ttl     = "60"
+  records = ["${awsx_elasticache_replication_group.bar.endpoint_address}"]
 }
 `, acctest.RandInt(), acctest.RandInt(), acctest.RandInt(), acctest.RandInt(), acctest.RandInt(), acctest.RandString(10))

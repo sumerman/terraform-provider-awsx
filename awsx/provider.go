@@ -161,6 +161,14 @@ func resourceAwsElasticacheReplicationGroup() *schema.Resource {
 				Set:      schema.HashString,
 			},
 			// Exported Attributes
+
+			// This weirdly looking attribute has been added
+			// as a workaround for the terraform bug, that
+			// prevents using nested computed fields in some cases.
+			"endpoint_address": &schema.Schema{
+				Type:     schema.TypeString,
+				Computed: true,
+			},
 			"endpoint": &schema.Schema{
 				Type:     schema.TypeMap,
 				Computed: true,
@@ -423,6 +431,7 @@ func resourceAwsElasticacheReplictaionGroupRead(d *schema.ResourceData, meta int
 		if len(rg.NodeGroups) == 1 {
 			groupMembers = rg.NodeGroups[0].NodeGroupMembers
 			log.Printf("[DEBUG] Setting an endpoint info")
+			d.Set("endpoint_address", *rg.NodeGroups[0].PrimaryEndpoint.Address)
 			d.Set("endpoint", map[string]interface{}{
 				"address": *rg.NodeGroups[0].PrimaryEndpoint.Address,
 				"port":    int(*rg.NodeGroups[0].PrimaryEndpoint.Port),
